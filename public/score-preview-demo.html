@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>帖子内嵌 · 乐谱预览（600×600 · 外置播放条 + 竖向进度条）</title>
+<style>
+  :root{
+    --ink:#1b1b19; --ink2:#5c5c58; --ink3:#9b9b95;
+    --line:#e9e8e3; --accent:#2f6f5f; --accent2:#e9f2ef;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:#F9F7F5; color:var(--ink);
+    font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:26px 30px 40px;
+  }
+  h1{font-size:16px; font-weight:650; margin:0 0 4px}
+  .sub{font-size:12.5px; color:var(--ink3); margin:0 0 18px}
+  .sub b{color:var(--ink2); font-weight:600}
+
+  /* 组件本体：高度恒 600；宽度由 mount 时按谱面实宽算出（CSS 变量 --card-w）
+     17 键 → 600 = 62(左轨) + 476(网格) + 62(右留白)
+     · 内核右侧的「简谱对照带」(RD.RIGHT = 108) 已裁掉（见 EMBED_CSS 的 #svgHost 与 mount 第②步）；
+     · 右侧那 62 留给**竖向播放进度条**（内核 #progBar 宽 10、贴预览区右缘）；
+     · 内核滚动条也已隐藏，否则它会吃掉右侧宽度、左右就不齐了。 */
+  .preview-card{
+    position:relative;
+    width:var(--card-w, 600px); height:600px;
+    border-radius:12px; overflow:hidden; background:#fff;
+    box-shadow:0 0 0 1px var(--line), 0 10px 30px rgba(27,27,25,.07);
+  }
+  .preview-card > iframe{display:block; width:100%; height:100%; border:0; background:#fff}
+
+  /* ── 外置播放条（用户 2026-10-13 定稿）────────────────────────────────
+     播放按钮从谱面上**挪出来**，放到卡片**外面**、卡片正上方的一条横条里：
+       · 条与卡片**同宽**（都吃 --card-w），紧贴卡片上沿（无间隙）；
+       · 按钮**左对齐**，就是图里「播放」那个位置；
+       · 条本身透明（图里量出来就是页面底色），所以视觉上是一颗浮在卡外的按钮。
+     为什么真外置而不是仍浮在谱面上：谱面上任何浮层都会压住 svg 里画的东西
+     （页眉文字、网格），位置怎么挪都要避让；挪出画布就与谱面彻底解耦。 */
+  .player{position:relative; width:var(--card-w, 600px)}
+  .player-bar{height:44px; display:flex; align-items:center}
+  /* 与内核 #btnPlay（.btn.primary）同一套观感：--accent 底 + 白字 + radius 8 */
+  .play-btn{
+    font-family:inherit; font-size:13px; line-height:1.55; padding:7px 13px;
+    border-radius:8px; cursor:pointer; white-space:nowrap; min-width:82px; text-align:center;
+    border:1px solid var(--accent); background:var(--accent); color:#fff;
+    transition:.14s background,.14s border-color;
+  }
+  .play-btn:hover{background:#28604f; border-color:#28604f}
+  .play-btn:active{transform:translateY(.5px)}
+
+  /* 尺寸标尺：只做标注，不参与布局 */
+  .ruler-x, .ruler-y{position:absolute; color:#b9b8b2; font:10.5px/1 ui-monospace,Menlo,Consolas,monospace; pointer-events:none}
+  .ruler-x{left:50%; bottom:-17px; transform:translateX(-50%)}
+  .ruler-y{top:50%; right:-30px; transform:translateY(-50%) rotate(90deg)}
+
+  .meta{position:absolute; left:26px; top:-19px; font-size:11.5px; color:var(--ink3)}
+
+  .notes{margin-top:34px; max-width:820px}
+  .notes h2{font-size:12.5px; font-weight:650; color:var(--ink2); margin:0 0 8px}
+  .notes ul{margin:0; padding-left:18px; font-size:12.5px; color:var(--ink2); line-height:1.9}
+  .notes code{font:11.5px ui-monospace,Menlo,Consolas,monospace; background:#f2f2ee; border:1px solid var(--line); border-radius:4px; padding:0 4px}
+  .tag{display:inline-block; font-size:11px; border-radius:999px; padding:1px 8px; margin-right:6px}
+  .tag.on{background:var(--accent2); color:var(--accent)}
+  .tag.off{background:#f2f2ee; color:var(--ink3)}
+</style>
+</head>
+<body>
+
+<h1>帖子内嵌 · 乐谱瀑布流预览</h1>
+<p class="sub">复用制谱内核渲染 · 单栏连续预览 · 保留悬浮音名（<b>不可点击</b>） · <b>竖向进度条已接上</b> · 播放按钮<b>在卡片外</b></p>
+
+<div class="player" id="player">
+  <span class="meta">内容区 600 × 600 &nbsp;=&nbsp; 62 符尾轨 + 476 谱面 + 62（右留白 · 进度条落点）</span>
+
+  <!-- 外置播放条：在卡片**外面**、卡片正上方，与卡片同宽，按钮左对齐 -->
+  <div class="player-bar">
+    <button class="play-btn" id="extPlay" type="button">▶ 播放</button>
+  </div>
+
+  <div class="preview-card" id="card">
+    <!-- allow="autoplay"：播放按钮在**父页**，若用户激活不向同源子框传播，
+         子框的 AudioContext 就可能起不来。给到这个权限，两边都不靠运气。 -->
+    <iframe id="fr" src="./composer.html" allow="autoplay" title="乐谱预览（只读）"></iframe>
+    <span class="ruler-x">600 px</span>
+    <span class="ruler-y">600 px</span>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>这一版的口径</h2>
+  <ul>
+    <li><span class="tag on">尺寸</span>内容区 <code>600 × 600</code> = 62 左轨（内核常量 <code>RD.LEFT</code>，留给符干/符尾）+ 476 网格 + 62 右留白，<b>左右严格等宽</b>；内核滚动条隐藏（滚轮 / 触控板照常可滚）。</li>
+    <li><span class="tag off">已砍</span>右侧「简谱对照带」（内核 <code>RD.RIGHT = 108</code>）整体裁掉 —— 连续预览下它本来就是空的一块（可勾「简谱对照」才画）。</li>
+    <li><span class="tag on">进度条</span>内核竖向进度条 <code>#progBar</code> <b>已接上</b>（宽 10、贴预览区右缘，落在右侧那 62 留白里）：跟着播放 / 暂停 / 复位走，<b>按住可上下拖动跳转</b>（拖动时自动暂停并弹时间气泡）。壳里那条「把它藏掉」的覆盖规则已删，内核逻辑一行没改。</li>
+    <li><span class="tag on">外置播放</span>播放按钮在卡片<b>外面</b>——卡片正上方、与卡片同宽的一条横条里，左对齐。父页这颗按钮是内核 <code>#btnPlay</code> 的镜像：点它 = 点内核那颗，文案由内核同步回来，谱面上不再浮任何控件。</li>
+    <li><span class="tag on">复用内核</span>直接以 iframe 承载内核单文件 <code>composer.html</code>，渲染 / 排版 / 音名 / 播放全部是内核本尊，未重写。</li>
+    <li><span class="tag on">单栏</span>连续预览（内核 <code>paged=false</code>），不排双栏、不分页。</li>
+    <li><span class="tag on">悬浮音名</span>保留内核的悬浮音位轴；<code>pointer-events:none</code> 关掉「点某一列试听」。</li>
+    <li><span class="tag on">数据入口</span>内核导出的 JSON 自带简谱原文 <code>source</code>，组件据此「重新生成琴谱」——这就是加载用户乐谱的通道。</li>
+  </ul>
+</div>
+
+<script>
+/* =====================================================================
+   内嵌乐谱预览组件（原型）
+   ---------------------------------------------------------------------
+   组件 = 一个 800×600 的 iframe + 一段「配置内核」的胶水脚本。
+   内核零改动（复用 composer.html 本体），配置全部在**父页**完成。
+
+   数据契约：模拟内核导出的乐谱 JSON（见 exportJson）。
+   ★ 内核侧「重新打开一份谱」的入口是 **简谱原文**（json.source），
+     不是 rows —— 内核没有 JSON 导入，这一点在 composer.html 里有明确注释。
+     所以组件只把 source 灌回 `#src` 再点「生成琴谱」，其余字段供二次处理。
+   ===================================================================== */
+
+/* 模拟「用户上传的乐谱 json」——结构与内核 exportJson() 的输出一致 */
+const SAMPLE_SCORE = {
+  format: 'kalimba-tab', version: 1,
+  exportedAt: '2026-10-13T08:00:00.000Z',
+  title: '小星星（示例）',
+  key: { name: 'C', pc: 0 },
+  meter: [4, 4],
+  tempo: 88,
+  tuning: { key: 'k17', len: 17 },
+  mode: 'movable',
+  direction: 'up',
+  transpose: 0,
+  unit: 0.5,
+  rowsPerMeasure: 8,
+  beatsPerMeasure: 4,
+  nMeasures: 16,
+  totalBeats: 64,
+  usedCols: [],
+  rows: [],
+  source: [
+    '# 卡林巴转谱工坊 · 示例（可直接在谱面上点选修改）',
+    'title: 小星星（示例）',
+    'key: 1=C',
+    'meter: 4/4',
+    'tempo: 88',
+    'tuning: 17',
+    'mode: movable',
+    'direction: up',
+    '',
+    /* ⚠️ 一个块里的**多条谱行 = 多个声部**（同时发声、按小节对齐），不是「接着往下排」。
+       要 16 小节连续，就得写在**同一行**里；写成两行会得到「8 小节 × 2 声部」。 */
+    'M: 1 1 5 5 | 6 6 5- | 4 4 3 3 | 2 2 1- | 5 5 4 4 | 3 3 2- | 5 5 4 4 | 3 3 2- | 1 1 5 5 | 6 6 5- | 4 4 3 3 | 2 2 1- | 5_5_ 4_4_ 3 3 | 2 2 1- | 5_5_ 4_4_ 3 3 | 2 2 1- |'
+  ].join('\n')
+};
+
+/* ---------- 内核版式常量（与 kalimba-tab/index.html 的 RD 对齐；内核一改，这里要同步）----------
+   LEFT  = RD.LEFT   左轨：留给符干 / 符尾（右侧留白照它取，左右才等宽）
+   RIGHT = RD.RIGHT  右侧「简谱对照带」——本组件**砍掉**
+   PROG_W / PROG_GAP = 竖向播放进度条的宽（#progBar 的 width）与贴边缝（progPlace 里的 +5） */
+const RD_LEFT = 62, RD_RIGHT = 108, GAP_R = RD_LEFT, PROG_W = 10, PROG_GAP = 5;
+
+/* 把内核外壳剥成「只有谱面预览区」。
+   —— 只动**外观**，不动任何渲染逻辑。 */
+const EMBED_CSS = `
+  html,body{height:100%; margin:0; background:#fff}
+  /* ★ 顶栏（连同那排按钮：复位 / 播放 / 停止 / 导出 / 打印 …）**整条隐藏**。
+     播放按钮已经挪到卡片**外面**（父页 .player-bar 里的 #extPlay），谱面上不留任何浮层。
+     ⚠️ 隐藏 ≠ 失效：#btnPlay 仍在 DOM 里，父页点 #extPlay 时把 click 转交过去，
+        走的是内核**原有的**那条 play() → syncPlayBtn() 链路，行为与文案都不重写。
+     （上一版是把 .top 缩成一颗浮在页眉第二行的按钮 —— 位置再挑也是压在 svg 上，
+       收窄到 600 后处处要让位；挪出画布才彻底解耦。） */
+  .top{display:none !important}
+  .brand{display:none !important}
+  /* 主体铺满，左栏 / 工具条 / 侧栏 / 提示全部让位 */
+  .main{display:block !important; min-height:0 !important; height:100% !important}
+  .panel.left{display:none !important}
+  .panel.right{height:100% !important; padding:0 !important; background:#fff !important}
+  .toolbar{display:none !important}
+  .workRow{display:block !important; height:100% !important}
+  .stageWrap{display:block !important; height:100% !important}
+  /* 横向 padding 归零：谱面左缘贴容器左缘，左侧留白完全由内核左轨（RD.LEFT=62）构成 */
+  .stage{
+    height:100% !important; max-height:none !important;
+    border:0 !important; border-radius:0 !important; padding:10px 0 0 !important;
+  }
+  /* ★ 砍掉右侧「简谱对照带」：把 #svgHost 收到「左轨 + 网格」的宽度，多出的 108 直接裁掉。
+     宽度由父页按谱面实宽写死（见 score-preview-demo 的 mountScorePreview 第②步）。
+     那 108 本来就是空的（连标题右端也只画到 W − 108），裁掉不切任何内容。 */
+  #svgHost{overflow:hidden !important}
+  /* 隐藏内核滚动条：它会在右侧占 15px，破坏「左右留白等宽」；滚轮 / 触控板照常可滚 */
+  #stage::-webkit-scrollbar{width:0 !important; height:0 !important}
+  .stage, #stage{scrollbar-width:none}
+  .warnbox,.legend{display:none !important}
+  #attach{display:none !important}
+  .dlgMask{display:none !important}
+  /* ★ 竖向播放进度条**接上**（内核 #progBar 原样启用）。
+     内核本来就有它：贴滚动条左侧的浮层，跟着「播放 / 暂停 / 复位」三态走，
+     还能按住上下拖动跳转（拖动时自动暂停并弹时间气泡）。
+     这里**什么都不用写** —— 壳里那条 display:none 的覆盖规则删掉即可：
+     内核自己的「#progBar{display:none}」+「#progBar.on{display:block}」就是「有谱才显示」。
+     落点由内核 progPlace() 自己算：right = 滚动条净宽 + 右边框 + 5
+       → 本组件隐藏了滚动条、.stage 边框归零 → right = 5，正好落在右侧那 62 留白里。
+     ⚠️ 内核在 @media print 里另有 #progBar{display:none !important}（打印不出进度条），
+        那是出纸口径，与屏幕预览无关。 */
+`;
+
+function injectCSS(doc, css){
+  const s = doc.createElement('style');
+  s.setAttribute('data-kal-embed', '1');
+  s.textContent = css;
+  doc.head.appendChild(s);
+}
+
+/* 组件的唯一入口：把一份乐谱 json 灌进 iframe 里的内核，并切成只读预览形态 */
+function mountScorePreview(iframe, score){
+  const setup = () => {
+    const doc = iframe.contentDocument, win = iframe.contentWindow;
+    if(!doc || !doc.getElementById('src')) return;      // 内核还没就绪
+    injectCSS(doc, EMBED_CSS);
+    doc.title = score.title || '乐谱预览';
+
+    /* ① 数据：把简谱原文灌回内核的输入框，再走内核自己的「生成琴谱」路径 */
+    doc.getElementById('src').value = score.source;
+    doc.getElementById('btnParse').click();             // → rebuild(true) → draw()
+
+    /* ② 砍掉右侧「简谱对照带」，并把卡片宽度同步到「谱面 + 62」
+       内核连续预览的宽度是**写死**的：W = RD.LEFT(62) + RD.RIGHT(108) + 键数 × 列宽
+       （index.html:1811）—— 就算「简谱对照」没勾，那 108 也照样留着。
+       这里把 #svgHost 收到「去掉 108」，超出部分由 CSS overflow:hidden 裁掉；
+       那块本来就是空的（连页眉右端也只画到 W − 108），裁掉不切任何内容。
+       卡片宽度 = 裁后的谱面宽 + 62；那 62 就是竖向进度条的落点。 */
+    const host = doc.getElementById('svgHost');
+    const svgEl = host && host.querySelector('svg');
+    if(host && svgEl){
+      const full  = parseFloat(svgEl.getAttribute('width')) || 646;   // 17 键 → 646
+      const hostW = Math.max(0, full - RD_RIGHT);                     // 17 键 → 538
+      const cardW = hostW + GAP_R;                                    // 17 键 → 600
+      host.style.width = hostW + 'px';
+      document.documentElement.style.setProperty('--card-w', cardW + 'px');
+      const metaEl = document.querySelector('.meta');
+      if(metaEl) metaEl.textContent = '内容区 ' + cardW + ' × 600 = ' + RD_LEFT +
+        ' 符尾轨 + ' + (hostW - RD_LEFT) + ' 谱面 + ' + GAP_R + '（右留白 · 进度条位）';
+      const rx = document.querySelector('.ruler-x');
+      if(rx) rx.textContent = cardW + ' px';
+    }
+
+    /* ③ 只读化：悬浮音名保留，去掉「点某一列试听」的点击效果 */
+    const axis = doc.getElementById('axisBar');
+    if(axis){
+      axis.style.pointerEvents = 'none';                // 不吃指针 = 点不动
+      axis.style.cursor = 'default';
+      axis.removeAttribute('title');                    // 提示语里写着「可试听」，去掉免得误导
+    }
+
+    /* ④ 单栏连续预览：默认即是（paged=false），这里显式兜一次底 */
+    const paged = doc.getElementById('optPaged');
+    if(paged) paged.checked = false;
+    if(typeof win.draw === 'function') win.draw();
+
+    /* ⑤ 接上外置播放按钮（父页那颗 = 内核 #btnPlay 的镜像） */
+    wireExternalPlay(doc);
+
+    /* ⑥ 自检：?debug=1 出读数与标尺；?auto=1 自动点一次播放、验播放链路 */
+    const q = new URLSearchParams(location.search);
+    if(q.has('debug')){ report(doc, win, iframe); gauges(); }
+    if(q.has('auto')) setTimeout(() => selfTestPlay(doc, win), 400);
+  };
+
+  if(iframe.contentDocument && iframe.contentDocument.readyState === 'complete'
+     && iframe.contentDocument.getElementById('src')) setup();
+  else iframe.addEventListener('load', setup, {once:true});
+}
+
+/* ── 外置播放按钮 = 内核 #btnPlay 的**镜像** ──────────────────────────────
+   · 点击：转交 .click() 给内核那颗，而不是直接调 play() —— 走内核原有的
+     事件链路（play() → syncPlayBtn() → syncProg()），行为零重写。
+   · 文案：内核 syncPlayBtn() 会写 #btnPlay.textContent（'▶ 播放' / '❚❚ 暂停'），
+     这里用 MutationObserver 照抄过来，**不做**「包含暂停就显示暂停」这类二次判断
+     （内核加个图标、改个措辞，这边自动跟上）。
+   ⚠️ #btnPlay 此刻是 display:none（.top 整条隐藏）—— 但 .click() 对隐藏元素
+      照样派发事件，所以这条链路不受影响。 */
+function wireExternalPlay(doc){
+  const src = doc.getElementById('btnPlay'), ext = document.getElementById('extPlay');
+  if(!src || !ext) return;
+  ext.addEventListener('click', () => src.click());
+  const pull = () => { ext.textContent = src.textContent; };
+  new MutationObserver(pull).observe(src, {childList:true, characterData:true, subtree:true});
+  pull();
+}
+
+/* 自检（?auto=1）：自动点一次「播放」，看链路是否真的走通 ——
+   文案有没有翻成「暂停」、进度条有没有出来、游标有没有动。
+   （这同时验证「父页点击 → 子框 AudioContext 起得来」这件事。） */
+function selfTestPlay(doc, win){
+  const btn = document.getElementById('extPlay');
+  const before = btn.textContent;
+  btn.click();
+  setTimeout(() => {
+    const bar = doc.getElementById('progBar');
+    const thm = bar && bar.querySelector('.thm');
+    const lines = [
+      '外置按钮点击前文案 : ' + before,
+      '外置按钮点击后文案 : ' + btn.textContent + '   （应变成「❚❚ 暂停」）',
+      '进度条 #progBar    : class=' + (bar ? bar.className : '—') +
+        '   display=' + (bar ? win.getComputedStyle(bar).display : '—'),
+      '进度条游标 .thm    : top=' + (thm ? thm.style.top : '—') + '   （播放中应随时间下移 / 上移）'
+    ];
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'margin:18px 0 0; max-width:820px; font:12px/1.8 ui-monospace,Menlo,Consolas,monospace;' +
+      'color:#5c5c58; background:#f2f2ee; border:1px solid #e9e8e3; border-radius:10px; padding:12px 14px; white-space:pre-wrap';
+    pre.textContent = '▶ 播放链路自检\n' + lines.join('\n');
+    document.body.appendChild(pre);
+  }, 1200);
+}
+
+/* 度量读数（?debug=1）：核验「内容区 600×600 / 单栏 / 轴不可点 / 进度条已接上 / 按钮在卡外」 */
+function report(doc, win, iframe){
+  const R = el => el ? el.getBoundingClientRect() : null;
+  const px = r => r ? Math.round(r.width*100)/100 + ' × ' + Math.round(r.height*100)/100 : '—';
+  const cs = el => el ? win.getComputedStyle(el) : {};
+  const card  = document.getElementById('card');
+  const stage = doc.getElementById('stage');
+  const svg   = doc.querySelector('#svgHost svg');
+  const host  = doc.getElementById('svgHost');
+  const axis  = doc.getElementById('axisBar');
+  const prog  = doc.getElementById('progBar');
+  const lines = [
+    '卡片内容区       : ' + px(R(card)),
+    'iframe 视口      : ' + iframe.clientWidth + ' × ' + iframe.clientHeight,
+    '文档 clientWidth : ' + doc.documentElement.clientWidth,
+    '预览区 #stage    : ' + stage.clientWidth + ' × ' + stage.clientHeight +
+      '   可滚高 scrollHeight = ' + stage.scrollHeight + '（> 高 ⇒ 瀑布流可滚）',
+    '谱面 svg         : attr ' + (svg ? svg.getAttribute('width') + ' × ' + svg.getAttribute('height') : '—') +
+      '   渲染 ' + px(R(svg)),
+    '#svgHost        : width=' + (((doc.getElementById('svgHost') || {}).style || {}).width || '—') +
+      '   overflow=' + cs(doc.getElementById('svgHost')).overflow + '   （谱面 − 108 简谱对照带）',
+    '左右留白          : 左 ' + (host ? Math.round(R(host).left - R(stage).left) : '—') +
+      ' px（其内是内核左轨 ' + RD_LEFT + ' 的符尾带）   右 ' +
+      (host ? Math.round(R(stage).right - R(host).right) : '—') +
+      ' px   （按 #svgHost 的**可见**右缘算 —— svg 元素仍是 646，右侧 108 被裁掉了）',
+    '分页块 .pg 数     : ' + doc.querySelectorAll('#svgHost .pg').length + '（0 = 单栏连续预览）',
+    'optPaged 勾选     : ' + (doc.getElementById('optPaged') || {}).checked,
+    '悬浮轴 #axisBar  : ' + px(R(axis)) + '   display=' + cs(axis).display +
+      '   marginLeft=' + (axis ? axis.style.marginLeft : '—'),
+    '轴 pointer-events: ' + cs(axis).pointerEvents + '（none = 不做点击效果）',
+    '进度条 #progBar  : display=' + cs(prog).display + '   class="' + (prog ? prog.className : '') +
+      '"   贴边 right=' + (prog ? prog.style.right : '—') + '   实体 ' + px(R(prog)) +
+      '（应落在右侧 ' + GAP_R + ' 留白内）',
+    '── 卡外部分 ──',
+    '播放条 .player-bar: ' + px(R(document.querySelector('.player-bar'))) +
+      '   卡片自身 ' + Math.round(R(card).width) + ' 宽 ⇒ 两者同宽=' +
+      (Math.round(R(document.querySelector('.player-bar')).width) === Math.round(R(card).width)),
+    '外置按钮 #extPlay : ' + px(R(document.getElementById('extPlay'))) +
+      '   文案「' + document.getElementById('extPlay').textContent +
+      '」＝ 内核 #btnPlay「' + ((doc.getElementById('btnPlay') || {}).textContent || '—') + '」',
+    '状态栏 #stat     : ' + (doc.getElementById('stat') || {}).textContent
+  ];
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'margin:26px 0 0; max-width:820px; font:12px/1.85 ui-monospace,Menlo,Consolas,monospace;' +
+    'color:#5c5c58; background:#f2f2ee; border:1px solid #e9e8e3; border-radius:10px; padding:12px 14px; white-space:pre-wrap';
+  pre.textContent = lines.join('\n');
+  document.body.appendChild(pre);
+}
+
+/* 标尺带（仅 ?debug=1）：左 62 = 内核左轨（符尾带），右 62 = 留白（即进度条位）。
+   两条**同色同宽** ⇒ 肉眼即可判断左右是否齐；另把竖向进度条的落点标出来。 */
+function gauges(){
+  const card = document.getElementById('card');
+  const cw = Math.round(card.getBoundingClientRect().width);
+  const band = (left, w) => {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:absolute; top:0; bottom:0; left:' + left + 'px; width:' + w +
+      'px; background:rgba(47,111,95,.22); pointer-events:none; z-index:5;';
+    card.appendChild(d);
+  };
+  band(0, RD_LEFT);            // 左：符尾带（内核 RD.LEFT）
+  band(cw - GAP_R, GAP_R);     // 右：留白（应与左等宽；进度条就落在这里）
+
+  /* 竖向进度条的落点（内核 #progBar：width 10、right ≈ 5，贴预览区右缘、浮在留白之上）。
+     ★ 进度条已经**真的接上**了（在内核里，本覆盖层压不到它），所以这里只画一圈
+       **虚线外框**做位置对照 —— 填色会把它盖住，就验不了了。 */
+  const pb = document.createElement('div');
+  pb.style.cssText = 'position:absolute; top:10px; bottom:10px; right:' + PROG_GAP + 'px; width:' +
+    PROG_W + 'px; background:transparent; border:1px dashed rgba(181,113,63,.75);' +
+    'border-radius:6px; pointer-events:none; z-index:6;';
+  card.appendChild(pb);
+}
+
+/* 挂载 */
+mountScorePreview(document.getElementById('fr'), SAMPLE_SCORE);
+</script>
+</body>
+</html>

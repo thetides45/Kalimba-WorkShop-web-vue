@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+.DS_Store
+
+# JVM 崩溃日志（本机调试时会在项目根生成，属临时文件）
+hs_err_pid*.log
+replay_pid*.log

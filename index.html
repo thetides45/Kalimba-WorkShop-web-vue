@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拇指琴谷 · 卡林巴琴谱社区</title>
+<script>
+/* ★ 2026-10-15 离线降级（快速路径）：PWA 从主屏图标启动、且**确实离线**时，直接进制谱器。
+   理由：制谱器（composer.html）是自包含的单文件工具，离线对它毫无影响；
+   而离线时的站点首页数据全空，等于白开一次。
+   放在 head 最前是刻意的 —— 要赶在字体样式与模块请求之前就决定，省掉整段白屏。
+   ⚠️ 两道前提缺一不可：
+      ① display-mode: standalone —— 只在「装到桌面后打开」时生效。浏览器标签页访问、
+         本地开发（dev 活着时 onLine 恒为 true）都不受影响。这正是需求里的「pwa 安装部分」。
+      ② navigator.onLine === false —— 只处理飞行模式 / 拔网线这类**立刻可知**的离线。
+         它本身不可靠（连着无网路由器时仍是 true），那种情况交给 Service Worker 兜底
+         （public/sw.js 的 navigate 分支），这里是「不必等网络超时」的快路。
+   路径写绝对形式 /composer.html，与同文件里的 /src/main.js、/manifest.webmanifest 一致 ——
+   相对写法会被前端路由带偏（/post/123 + ./composer.html 会被解析成 /post/composer.html）。 */
+(function () {
+  try {
+    if (!window.matchMedia('(display-mode: standalone)').matches) return;
+    if (navigator.onLine !== false) return;
+    location.replace('/composer.html');
+  } catch (e) { /* 任何异常都不该拦住站点启动 */ }
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&display=swap"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&display=swap"></noscript>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#5D4432">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
