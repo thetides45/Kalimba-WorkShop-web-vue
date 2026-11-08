@@ -32,8 +32,11 @@
 /* ⚠️ 升版本号的判据只有一个：**只要 `PRECACHE` 里的东西变了就得升** ——
    不升的话 activate 不清旧缓存，装过 PWA 的浏览器会一直拿到旧副本。
    · v3 → v4（2026-10-16 上午）：composer.html 加了离线降级弹窗 + 注入层加了「← 回拇指琴谷」入口。
-   · v4 → v5（2026-10-16 下午）：内核加了「JSON 导入」，composer.html 随之重新生成。 */
-const VERSION = 'kalimba-pwa-vue-v5'
+   · v4 → v5（2026-10-16 下午）：内核加了「JSON 导入」，composer.html 随之重新生成。
+   · v5 → v6（2026-11-08）：内核加了「未保存提醒」（beforeunload），composer.html 随之重新生成。
+   · v6 → v7（2026-11-08）：内核加了「本地草稿自动保存」，composer.html 随之重新生成。
+   · v7 → v8（2026-11-08）：自动保存改挂到 draw()（原来只挂了几个入口，改 BPM 不会存），产物重新生成。 */
+const VERSION = 'kalimba-pwa-vue-v8'
 
 /* 预缓存「应用壳 + 制谱器 + 图标」。
    ★ 2026-10-15：**把 composer.html 加了进来**。v2 时是刻意不含的（当时的理由：280KB、
