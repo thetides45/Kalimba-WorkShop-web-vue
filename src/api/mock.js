@@ -2,8 +2,11 @@
    拇指琴谷 · 演示数据与 MockAPI（Vue 版）
    ------------------------------------------------------------
    与 V3 `web/assets/app.js` 的数据层完全对应，作用有二：
-     ① **未接后端的模块继续走 mock**：`users.myFavorites` / `works` / `offline`
-        （后端的收藏列表、作品广场、离线包下载三个端点在 V1 接口文档里就没定义）
+     ① **未接后端的模块继续走 mock**：`works` / `offline`
+        （作品广场聚合、离线包下载这两个端点在 V1 接口文档里没定义）。
+        ⚠️ 2026-10-19 起 `users.myFavorites` **已接真后端**
+        （`GET /api/users/me/favorites`），本文件的同名方法只作离线兜底，
+        真实环境下由 `Real.users.myFavorites` 覆盖。
      ② **页面兜底演示数据**：帖子详情的谱面预览、作者简介等在没有真实数据时回退到 DB
         （V3 的 post.html / index.html / works.html 都直接用全局 `DB`，这里改为显式 import）
    ------------------------------------------------------------
@@ -11,8 +14,8 @@
       `Object.keys(Real).forEach(k => MockAPI[k] = Real[k])` **整模块替换**，
       于是 `Real.users` 覆盖掉 mock 的 `users` 后，`users.myFavorites` 被一并丢掉 ——
       个人主页「我的收藏」tab 在真实接口下会直接 TypeError。
-      本版按该文件注释声明的**设计意图**改为**逐方法合并**（见 api/index.js），
-      让 myFavorites 继续走 mock。
+      本版按该文件注释声明的**设计意图**改为**逐方法合并**（见 api/index.js）：
+      Real 里有同名方法就用真实现，没有才回落到 mock。
    ============================================================ */
 
 export const DEMO_USER = {

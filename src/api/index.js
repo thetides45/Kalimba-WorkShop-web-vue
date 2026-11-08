@@ -156,6 +156,27 @@ export const Real = {
       return http(on ? 'POST' : 'DELETE', '/api/users/' + id + '/follow').then(() => (
         { code: 0, message: 'ok', data: { followerCount: 0 } }
       ))
+    },
+    /* 我的收藏（GET /api/users/me/favorites）。
+       ★ 2026-10-19 起接真后端（此前 V1 文档没定义该端点，一直走 mock）。
+       返回结构与 posts.list 对齐：{ list, total, page, size }，卡片用同一个 toListItem 组装，
+       所以 PostCardBig / 分类页签 / 空态提示都不用改。 */
+    myFavorites(params) {
+      params = params || {}
+      const q = new URLSearchParams()
+      q.set('page', params.page || 1)
+      q.set('size', params.size || 20)
+      return http('GET', '/api/users/me/favorites?' + q.toString()).then((r) => {
+        if (r.code !== 0) return r
+        return allTags().then((all) => {
+          const d = r.data || {}
+          const recs = d.records || []
+          return Promise.all(recs.map((p) => toListItem(p, all))).then((list) => ({
+            code: 0, message: 'ok',
+            data: { list, total: d.total || list.length, page: d.page || 1, size: d.size || list.length }
+          }))
+        })
+      })
     }
   },
 
@@ -691,8 +712,9 @@ export const Real = {
 
 /* ---------------- 合并：真实实现覆盖 mock，但**逐方法**合并 ----------------
    V3 是整模块替换（`MockAPI[k] = Real[k]`），会顺带丢掉 mock 里 Real 没有的方法
-   （最典型：`users.myFavorites`）。这里改成 Object.assign 逐方法合并，
-   未实现的模块（works / offline）与未实现的方法继续走 mock，符合原注释声明的意图。 */
+   （历史案例：`users.myFavorites` —— 那时它确实没接后端，整模块替换会让它 TypeError）。
+   这里改成 Object.assign 逐方法合并：Real 有同名方法用真实现，没有才回落到 mock，
+   所以现在未实现的是 works / offline 两个模块，以及少数尚未迁移的方法。 */
 export const api = {}
 Object.keys(MockAPI).forEach((k) => { if (!k.startsWith('_')) api[k] = MockAPI[k] })
 Object.keys(Real).forEach((k) => { api[k] = Object.assign({}, MockAPI[k] || {}, Real[k]) })

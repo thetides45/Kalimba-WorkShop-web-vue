@@ -114,8 +114,11 @@ async function loadProfile() {
 
 async function loadSection() {
   if (section.value === 'favs') {
-    /* GET /api/users/me/favorites：该端点在 V3 就未接后端（走 mock），此处保持一致 */
-    const r = await api.users.myFavorites()
+    /* 收藏夹**仅本人可见**（后端只有 /api/users/me/favorites，没有 /users/{id}/favorites）。
+       看别人的主页时不再发请求，直接给空列表 + 一句说明 —— 否则会把「我的收藏」
+       当成「TA 的收藏」展示出来，那是一个真实的越权式误导。 */
+    if (!isMe.value) { allPosts.value = []; cat.value = ''; return }
+    const r = await api.users.myFavorites({ page: 1, size: 50 })
     if (!handleRes(r, '收藏加载失败')) return
     allPosts.value = r.data.list || []
   } else {
@@ -297,7 +300,7 @@ watch(uid, init)
           </div>
           <div v-if="!visiblePosts.length" class="empty-tip">
             {{ section === 'favs'
-              ? (isMe ? '收藏夹还是空的，去广场逛逛吧。' : 'TA 还没有收藏。')
+              ? (isMe ? '收藏夹还是空的，去广场逛逛吧。' : 'TA 的收藏仅本人可见。')
               : (isMe ? '你还没有发过谱帖。' : 'TA 还没有发过谱帖。') }}
           </div>
         </section>
