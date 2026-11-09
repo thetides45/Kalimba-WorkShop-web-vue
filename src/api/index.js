@@ -323,7 +323,10 @@ export const Real = {
   tags: {
     list() {
       return allTags().then((all) => {
-        const list = all.map((t) => ({ id: String(t.id), name: t.name, category: t.category, postCount: 0 }))
+        /* postCount 由后端 `/api/tags` 直接给出（2026-11-09 起，SQL 按 FIND_IN_SET 统计 status=1）。
+           以前这里是写死的 `postCount: 0` —— 因为那时接口只返回 id/name/category，
+           首页 chips 右侧那个「· 21」就永远是 0。保留 `|| 0` 只为兼容后端没升级的情况。 */
+        const list = all.map((t) => ({ id: String(t.id), name: t.name, category: t.category, postCount: t.postCount || 0 }))
         return { code: 0, message: 'ok', data: { list, total: list.length, page: 1, size: list.length } }
       })
     }
