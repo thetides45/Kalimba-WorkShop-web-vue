@@ -148,6 +148,16 @@ function apply() {
     readOnlyAxis()
     singleColumn()
     mirrorPlay()
+    /* 预览是**只读展示**，不是编辑态 —— 把内核的「已保存」基准挪到当前这份谱上。
+       `feed()` 刚把帖子里的谱重建过，网格与 init 时那份（内置样例 / 本地草稿）必然不同，
+       不重置的话 `__kalimbaHasUnsaved()` 会一直是 true，后果有两个：
+         ① 关顶层页面时浏览器会问到这个 iframe，它一调 preventDefault，
+            社区页 / 帖子页就跟着弹「可能有未保存的更改」（2026-11-09 复现并修掉）；
+         ② 内核 `draftSave()` 的守卫是「没有改动就不写」，守卫失效后可能把**别人的谱**
+            写进访问者本地的草稿。
+       ⚠️ 由内核导出（`kalimba-tab/index.html` 里的 `window.__kalimbaMarkSaved`）。
+          旧版内核没有这个函数 ⇒ 必须判类型，不能直接调用。 */
+    if (typeof win.__kalimbaMarkSaved === 'function') win.__kalimbaMarkSaved()
   } catch (e) {
     /* 不吞错：这个组件一旦半途失败，页面会**静默**停在内核自带的样例谱上
        （看起来「有谱」，其实根本不是这篇帖的）—— 必须留下痕迹。 */

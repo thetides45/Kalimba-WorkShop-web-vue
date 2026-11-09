@@ -35,8 +35,10 @@
    · v4 → v5（2026-10-16 下午）：内核加了「JSON 导入」，composer.html 随之重新生成。
    · v5 → v6（2026-11-08）：内核加了「未保存提醒」（beforeunload），composer.html 随之重新生成。
    · v6 → v7（2026-11-08）：内核加了「本地草稿自动保存」，composer.html 随之重新生成。
-   · v7 → v8（2026-11-08）：自动保存改挂到 draw()（原来只挂了几个入口，改 BPM 不会存），产物重新生成。 */
-const VERSION = 'kalimba-pwa-vue-v8'
+   · v7 → v8（2026-11-08）：自动保存改挂到 draw()（原来只挂了几个入口，改 BPM 不会存），产物重新生成。
+   · v8 → v9（2026-11-09）：内核把 beforeunload 改成「被 iframe 承载时不拦截」，并导出 __kalimbaMarkSaved
+     供只读预览重置基准；composer.html 随之重新生成。 */
+const VERSION = 'kalimba-pwa-vue-v9'
 
 /* 预缓存「应用壳 + 制谱器 + 图标」。
    ★ 2026-10-15：**把 composer.html 加了进来**。v2 时是刻意不含的（当时的理由：280KB、
